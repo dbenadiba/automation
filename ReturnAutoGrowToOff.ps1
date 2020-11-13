@@ -4,7 +4,7 @@
 # as "/{source_vol_name}_cloneN".
 
 ##### Editable script control variables #####
-#test
+#test2
 $cluster = 'cluster1.demo.netapp.com'  # Target cluster FQDN
 $volname = "pri_svm_01_iscsiwin_01"              # Name of source volume
 $svmname = "pri_svm_01"             # Name of SVM hosting source volume
