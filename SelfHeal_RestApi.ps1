@@ -63,17 +63,14 @@ function MySQL {
 # Testing
 #$args |out-file c:\script\ttt.txt
 $ocum_event = GetEvent -arguments $args
-$ocum_event |out-file -filepath c:\script\events.txt
 
 # Get Event Information
 $event_name = $ocum_event.name
 $event_state = $ocum_event.state
 $sourceID = $ocum_event.SourceID
-$sourceID | out-file -filepath C:\script\sourceID.txt
 
 # Ignore all non-new events
 if ($event_state.tolower() -ine "new"){
-    $true|out-file -FilePath C:\script\noneweventdetectected.txt
     exit
 }
 else
@@ -95,14 +92,12 @@ else
 	   AND svm.id=volume.svmId
 "@
 
-	$sql_query |out-file -filepath C:\script\sqlquery.txt
 		
 	#Getting volume details
 	$ocum_vol= MySQL -query $sql_query
 	$cluster_name = $ocum_vol.Cluster
 	$svm_name = $ocum_vol.Svm
 	$volume_name = $ocum_vol.Volume 
-	$volume_name |out-file -filepath C:\script\volname.txt
 	$volume_size = [long]($ocum_vol.VolumeSize/1mb)
 	
 	#
@@ -161,7 +156,6 @@ else
 	}
 	$voluuid = $response.records.uuid  # uuid of source volume
 	$aggr_name =  $response.records.aggregates.name
-	$voluuid | out-file -filepath C:\script\aggrname_response.txt
 	$totalsizeingb = $response.records.space.size/1gb
 	$usedsizeingb= $response.records.space.used /1gb
 	$percentused = ($usedsizeingb/$totalsizeingb)*100
@@ -184,8 +178,6 @@ else
 	  $apierror = $_ | ConvertFrom-json
 	  throw "method " + $methodtype + " " + $methodpath + " error: target = " + $apierror.error.target + ", " + $apierror.error.message
 	}
-	$aggr_name |out-file -filepath C:\script\aggrname.txt
-	$responseaggr |out-file -filepath C:\script\aggrresponse.txt
 	$aggrtotalsize = $responseaggr.records.space.block_storage.size / 1gb
 	$aggravailspace = $responseaggr.records.space.block_storage.available / 1gb
 	$aggrusablespace = ($aggrtotalsize *85 )/100
@@ -204,22 +196,16 @@ else
 		$payload = @{
 			'space' = @{'size' = $newtotalnizeingb}
 		}
-		$payload |out-file -filepath C:\script\newspace.txt
-		$newtotalnizeingb |out-file -filepath C:\script\newtotalsizeingb.txt
 		$payloadJSON = $payload | ConvertTo-json
 		# Invoke the method to create the snapshot
 		$responseaddcapa = Invoke-RestMethod -header $header -method $methodtype -uri $uri -Body $payloadJSON
-		
-		$responseaddcapa |out-file -filepath c:\script\rep_addcapa.txt
+
 	}
 	else
 	{
 		#there is not enough space Need to write a function that will serach suitable aggregate and run a vol move
 		$notenogh = "AggrUsableSpace With 85%"+$aggrusablespace +"   AvailSizeOfTheAggrAfterResize:"+$AvailSizeOfTheAggrAfterResize +"::::: aggravailspace:" + $aggravailspace + ":::::: additionalspace" + $additionalspace
-		$notenogh |out-file -filepath C:\script\notenoughspace.txt
 	}
 	#
-	$done="done"
-	$done|out-file -filepath C:\script\done.txt
 }
 
