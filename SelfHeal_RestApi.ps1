@@ -92,7 +92,6 @@ else
 	   AND svm.id=volume.svmId
 "@
 
-		
 	#Getting volume details
 	$ocum_vol= MySQL -query $sql_query
 	$cluster_name = $ocum_vol.Cluster
@@ -132,16 +131,16 @@ else
 "@
     Add-Type $certCallback
 	}
-
-[ServerCertificateValidationCallback]::Ignore()
-	#
+    [ServerCertificateValidationCallback]::Ignore()
+	#### / Ignore cert validation with ontap
 	
 	#Connection to Cluster using REST Api
-	# response type and base64-encoded credentials data for -header parameter 
+    # response type and base64-encoded credentials data for -header parameter with regular password NetApp1!
+    # Password could be retrived through a vault and inserted here ;)
 	$header = @{"accept" = "application/hal+json"; "authorization" = "Basic YWRtaW46TmV0YXBwMSE=" }
 	$clusterurl = "https://$cluster_name" # base URL for ONTAP REST API calls to the specified cluster
 		
-	##### Get the uuid of the source volume.
+	##### Get some info about the source volume.
 	# Construct the URI for the method
 	$methodtype = "GET"
 	$methodpath = "/api/storage/volumes"
@@ -174,19 +173,20 @@ else
 	# Invoke the method to get the volume details
 	try {
 	  $responseaggr = Invoke-RestMethod -header $header -method $methodtype -uri $uri
-	} catch {
+    } 
+    catch {
 	  $apierror = $_ | ConvertFrom-json
 	  throw "method " + $methodtype + " " + $methodpath + " error: target = " + $apierror.error.target + ", " + $apierror.error.message
 	}
 	$aggrtotalsize = $responseaggr.records.space.block_storage.size / 1gb
 	$aggravailspace = $responseaggr.records.space.block_storage.available / 1gb
 	$aggrusablespace = ($aggrtotalsize *85 )/100
-	#Lets check if it is less than additional capacity
+    
+    #Lets check if it is less than additional capacity
 	$AvailSizeOfTheAggrAfterResize = $aggravailspace - $additionalspace
-	
 	if ($AvailSizeOfTheAggrAfterResize -gt $aggrusablespace )
 	{
-		#Oki ther is enough Room to perform the vol resize
+		#Oki there is enough Room to perform the vol resize
 		#ResizeVol
 		$methodtype = "PATCH"
 		$methodpath = "/api/storage/volumes"
@@ -203,8 +203,8 @@ else
 	}
 	else
 	{
-		#there is not enough space Need to write a function that will serach suitable aggregate and run a vol move
-		$notenogh = "AggrUsableSpace With 85%"+$aggrusablespace +"   AvailSizeOfTheAggrAfterResize:"+$AvailSizeOfTheAggrAfterResize +"::::: aggravailspace:" + $aggravailspace + ":::::: additionalspace" + $additionalspace
+		#there is not enough space Need to write a function that will search suitable aggregate and run a vol move
+		#$notenogh = "AggrUsableSpace With 85%"+$aggrusablespace +"   AvailSizeOfTheAggrAfterResize:"+$AvailSizeOfTheAggrAfterResize +"::::: aggravailspace:" + $aggravailspace + ":::::: additionalspace" + $additionalspace
 	}
 	#
 }
