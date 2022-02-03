@@ -5,35 +5,11 @@ Param(
 	[Parameter(Mandatory=$false)][switch]$monthly,
 	[Parameter(Mandatory=$false)][switch]$weekly
     )
-<# 
-Comments:
-    This script will take Weekly, Monthly and Yearly snapshot on source then delete Monthly and Yearly snap from the source volume.
-    This is working only on SM to Cloud environment
- 
-    Script is looking for date to select which backup type:
-    --> 1st Sunday of the year à Yearly snapshot + Monthly Snapshot + Weekly Snapshot
-    --> 1st Sunday of the month à Monthly Snapshot +Weekly snapshot
-    --> Sunday à Weekly Snapshot
-
-Relation type :
-    Prod Volume (RW) >>> SM Cloud >>> S3Bucket
-
-Note:
-- This script will not work if you have cascaded environement (RW >> SnapVault >> DP >> Snapmirror to Cloud >> Bucket)
-- This script requires :
-    - NetApp Powershell Toolkit (v4.2 +)
-    - Cluster credentials (right to create snapshot / push snapmirror)
-
-Usage: 
-    smcloud_yearlysnap.ps1 -cluster <DNS name of the cluster>
-        ex: smcloud_yearlysnap.ps1 -cluster cluster1
-
-#>
-
+	
 #Variables
 $Logfilebase = "C:\LOD\FasInstall_log"
 $maxlogfiles = 5
-$maxlogfilesize = 2MB
+$maxlogfilesize = 50KB
 
 $WorkingDir="C:\LOD\"
 $netappusername = 'admin'
@@ -53,7 +29,6 @@ function LogWrite
 	if ((Get-Item $Logfilename).Length -gt $maxlogfilesize) 
 	{
 		$lastlog = "$Logfilebase${maxlogfiles}.log"
-		
 		if (Test-Path "$Logfilebase${maxlogfiles}.log") 
 		{
 			Remove-Item -Path $lastlog
@@ -102,9 +77,9 @@ function Encrypt_password ($passwordfile)
 		Write-Host "password been hashed and saved to ($passwordfile)" 
 	}
 }
-
-Connect_Filer $cluster
 $date=get-date
+Connect_Filer $cluster
+Logwrite "_+_+_+_+_+_+_+_ $($date)_+_+_+_+_+_+_+_ "
 # - Get the snapmirror 2 Cloud relationships  
 $relations=Get-NcSnapmirror |?{$_.DestinationLocation -match "objstore"}
 #Let's check if we are the 1st Sunday of the year;)
@@ -397,7 +372,6 @@ foreach ($relation in $relations)
 			Logwrite "It is Sunday. Taking a Weekly snapshot"
 			$WeeklySnapName="Weekly_"+$date.day.tostring()+"_"+$rndnumber.ToString()
 			$weeklysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $WeeklySnapName -SnapmirrorLabel weekly
-			
 			Logwrite "Force replication to : $($relation.DestinationLocation) to push newly weekly snapshots"
 			Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
 			Logwrite "Let's check replication status"
@@ -464,16 +438,13 @@ foreach ($relation in $relations)
 				LogWrite "Deleting snapshot : $($snaptodelete.name) created on : $($snaptodelete.created)"
 				Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $snaptodelete.name -confirm:$false |out-null
 			}
-			
 		}
-		
 	}
 	if ($notsunday -eq $true)
 	{
+		#Just display the SMC Dashboard with lagtime
 		$ts =  [timespan]::fromseconds($relation.lagtime)
 		$res = "$($ts.hours)H:$($ts.minutes)M:$($ts.seconds)"
 		Logwrite "$($relation) -Lag Time- $($res)"
 	}
-	#$relation
-	
 }
