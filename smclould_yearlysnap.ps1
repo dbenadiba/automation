@@ -64,7 +64,6 @@ function LogWrite
 			{
 				$j = $i + 1 
 				Rename-Item "$Logfilebase${i}.log" "$Logfilebase${j}.log"
-				write-host "here"
 			}
 		}
 	}
