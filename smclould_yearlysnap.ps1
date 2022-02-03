@@ -5,7 +5,28 @@ Param(
 	[Parameter(Mandatory=$false)][switch]$monthly,
 	[Parameter(Mandatory=$false)][switch]$weekly
     )
-	
+<# 
+Comments:
+    This script will take Weekly, Monthly and Yearly snapshot on source then delete Monthly and Yearly snap from the source volume.
+    This is working only on SM to Cloud environment
+ 
+    Script is looking for date to select which backup type:
+    --> 1st Sunday of the year à Yearly snapshot + Monthly Snapshot + Weekly Snapshot
+    --> 1st Sunday of the month à Monthly Snapshot +Weekly snapshot
+    --> Sunday à Weekly Snapshot
+Relation type :
+    PROD VOLUME(RW) >>> SM Cloud >>> S3Bucket
+	PROD VOLUME (R/W) >>> Volume Snapmirror (MirrorAllSnapshots) >>> DR VOLUME (R/O) >>> SM Cloud >>> S3Bucket
+Note:
+- This script will not work if you have cascaded environement (RW >> SnapVault >> DP >> Snapmirror to Cloud >> Bucket)
+- This script requires :
+    - NetApp Powershell Toolkit (v4.2 +)
+    - Cluster credentials (right to create snapshot / push snapmirror)
+Usage: 
+    smcloud_yearlysnap.ps1 -cluster <DNS name of the cluster>
+        ex: smcloud_yearlysnap.ps1 -cluster cluster1
+#>
+
 #Variables
 $Logfilebase = "C:\LOD\FasInstall_log"
 $maxlogfiles = 5
