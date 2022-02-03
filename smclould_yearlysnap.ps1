@@ -52,17 +52,19 @@ function LogWrite
 
 	if ((Get-Item $Logfilename).Length -gt $maxlogfilesize) 
 	{
-		$lastlog = "$Logfilebase${maxlogfiles}"
-		if (Test-Path $Logfilebase${maxlogfiles}) 
+		$lastlog = "$Logfilebase${maxlogfiles}.log"
+		
+		if (Test-Path "$Logfilebase${maxlogfiles}.log") 
 		{
 			Remove-Item -Path $lastlog
 		}
 		for ($i=$maxlogfiles-1; $i -ge 0; $i--) 
 		{
-			if (Test-Path $Logfilebase${i}) 
+			if (Test-Path "$Logfilebase${i}.log") 
 			{
 				$j = $i + 1 
-				Rename-Item $Logfilebase${i} $Logfilebase${j}
+				Rename-Item "$Logfilebase${i}.log" "$Logfilebase${j}.log"
+				write-host "here"
 			}
 		}
 	}
