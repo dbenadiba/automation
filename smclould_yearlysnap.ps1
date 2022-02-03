@@ -1,5 +1,9 @@
 Param(
-	[Parameter(Mandatory=$true)][string]$Cluster
+	[Parameter(Mandatory=$true)][string]$Cluster,
+	[Parameter(Mandatory=$false)][switch]$Testdebug,
+	[Parameter(Mandatory=$false)][switch]$yearly,
+	[Parameter(Mandatory=$false)][switch]$monthly,
+	[Parameter(Mandatory=$false)][switch]$weekly
     )
 <# 
 Comments:
@@ -25,6 +29,7 @@ Usage:
         ex: smcloud_yearlysnap.ps1 -cluster cluster1
 
 #>
+
 #Variables
 $Logfilebase = "C:\LOD\FasInstall_log"
 $maxlogfiles = 5
@@ -32,7 +37,7 @@ $maxlogfilesize = 2MB
 
 $WorkingDir="C:\LOD\"
 $netappusername = 'admin'
-$netapppasswordfile = 'na_pwd_do_not_delete'
+$netapppasswordfile = '_na_pwd_do_not_delete'
 
 $maxweeklysnapcount = 3
 
@@ -65,6 +70,7 @@ function LogWrite
 function Connect_Filer([string]$filernameSRC)
 {
 	#validate password file exists and convert to PS-Cred object
+	$netapppasswordfile = $filernameSRC+$netapppasswordfile
 	$passwordfile = "$($PSScriptRoot)\$($netapppasswordfile)"
 	if (!(Test-Path $passwordfile)) 
 	{
@@ -101,27 +107,32 @@ $date=get-date
 # - Get the snapmirror 2 Cloud relationships  
 $relations=Get-NcSnapmirror |?{$_.DestinationLocation -match "objstore"}
 #Let's check if we are the 1st Sunday of the year;)
-if ($date.Day -le 7 -and $date.DayOfWeek -eq "Sunday" -and $date.month -eq "1") 
+if (!$Testdebug)
 {
-	Logwrite "First Sunday of the year ... Let's take also a yearly snapshot"
-	$yearly=$true
-} 
-if ($date.Day -le 7 -and $date.DayOfWeek -eq "Sunday" ) 
-{
-	Logwrite "First Sunday of the month ... Let's take also a monthly snapshot"
-	$monthly=$true
-} 
-if ($date.DayOfWeek -eq "Sunday" ) 
-{
-	Logwrite "It is Sunday ... Let's take also a weekly snapshot"
-	$weekly=$true
-} 
-else
-{
-	Logwrite "Not the first Sunday of the year nor of the month nor of the week ;)"
-	Logwrite "It is not backup day. Just displaying Lag time"
-	$notsunday=$true
+	if ($date.Day -le 7 -and $date.DayOfWeek -eq "Sunday" -and $date.month -eq "1") 
+	{
+		Logwrite "First Sunday of the year ... Let's take also a yearly snapshot"
+		$yearly=$true
+	} 
+	if ($date.Day -le 7 -and $date.DayOfWeek -eq "Sunday" ) 
+	{
+		Logwrite "First Sunday of the month ... Let's take also a monthly snapshot"
+		$monthly=$true
+	} 
+	if ($date.DayOfWeek -eq "Sunday" ) 
+	{
+		Logwrite "It is Sunday ... Let's take also a weekly snapshot"
+		$weekly=$true
+	} 
+	else
+	{
+		Logwrite "Not the first Sunday of the year nor of the month nor of the week ;)"
+		Logwrite "It is not backup day. Just displaying Lag time"
+		$notsunday=$true
+	}
 }
+
+
 #Create a rndom number for snapshot suffix
 $rndnumber = Get-Random -Minimum 1 -Maximum 200
 foreach ($relation in $relations)
@@ -129,64 +140,263 @@ foreach ($relation in $relations)
 	if ($monthly -eq $true)
 	{
 		# - Create a snap on the production volume called Yearly and match with SM Label Monthly
-		Logwrite "It is the first Sunday of the month. Taking a Monthly snapshot"
-		$MonthlySnapName="Monthly_"+$date.month.tostring()+"_"+$rndnumber.ToString()
-		$monthlysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $MonthlySnapName -SnapmirrorLabel monthly
-		Logwrite "Monthly snapshot name = $($monthlysnap.name)"
-		if ($yearly -eq $true)
+		Logwrite "Searching for Source volume "
+		$relDP = Get-NcSnapmirror |?{$_.DestinationLocation -eq "$($relation.sourcevserver):$($relation.sourcevolume)"}
+		if ($relDP)
 		{
-			Logwrite "It is the first sunday of the year. Taking a yearly snapshot"
-			$YearlySnapName="Yearly_"+$date.year.tostring()+"_"+$rndnumber.ToString()
-			$yearlysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $YearlySnapName -SnapmirrorLabel yearly
-			Logwrite "Yearly snapshot name = $($yearlysnap.name)"
+			$peering=Get-NcVserverPeer -PeerVserver $relDP.sourcevserver
+			$peering=$peering[0]
+			Logwrite "Cascading detected !!! Source volume = $($relDP.sourcevolume) Source SVM: $($relDP.sourcevserver) Source Cluster: $($peering.PeerCluster)" 
+			$MonthlySnapName="Monthly_"+$date.month.tostring()+"_"+$rndnumber.ToString()
+			Logwrite "Connecting to peer cluster : $($peering.PeerCluster)"
+			$CurrentNcController = $null
+			Connect_Filer $peering.PeerCluster
+			$monthlysnap=New-NcSnapshot -Volume $relDP.sourcevolume -VserverContext $relDP.sourcevserver -Snapshot $MonthlySnapName -SnapmirrorLabel monthly
+			Logwrite "Monthly snapshot name = $($monthlysnap.name)"
+			if ($yearly -eq $true)
+			{
+				Logwrite "It is the first sunday of the year. Taking a yearly snapshot"
+				$YearlySnapName="Yearly_"+$date.year.tostring()+"_"+$rndnumber.ToString()
+				$yearlysnap=New-NcSnapshot -Volume $relDP.sourcevolume -VserverContext $relDP.sourcevserver -Snapshot $YearlySnapName -SnapmirrorLabel yearly
+				Logwrite "Yearly snapshot name = $($yearlysnap.name)"
+			}
+			Logwrite "Force replication to : $($relDP.DestinationLocation) to push newly created snapshots to the DRP Cluster"
+			$CurrentNcController = $null
+			Connect_Filer $cluster
+			Invoke-NcSnapmirrorUpdate -Destination $relDP.DestinationLocation |out-null
+			Logwrite "Let's check replication status"
+			$snapmirrored = $false
+			while ($snapmirrored -eq $false)
+			{
+				$SMstate=Get-NcSnapmirror -Destination $relDP.DestinationLocation
+				if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+				{
+					Logwrite "Update Done !! --- Mirror State = $($SMstate.MirrorState) "
+					$snapmirrored = $true
+				}
+				else
+				{
+					Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+					sleep 5
+				}
+			}
+			Logwrite "Force SMC replication to : $($relation.DestinationLocation) to push newly created snapshots"
+			Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
+			Logwrite "Let's check replication status"
+			$snapmirrored = $false
+			while ($snapmirrored -eq $false)
+			{
+				$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+				{
+					Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
+					$snapmirrored = $true
+				}
+				else
+				{
+					Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+					sleep 5
+				}
+			}
+			
 		}
-		Logwrite "Force replication to : $($relation.DestinationLocation) to push newly created snapshots"
-		Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
-		Logwrite "Let's check replication status"
-		$snapmirrored = $false
-		while ($snapmirrored -eq $false)
+		else
 		{
-			$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
-			if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+			Logwrite "It is the first Sunday of the month. Taking a Monthly snapshot"
+			$MonthlySnapName="Monthly_"+$date.month.tostring()+"_"+$rndnumber.ToString()
+			$monthlysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $MonthlySnapName -SnapmirrorLabel monthly
+			Logwrite "Monthly snapshot name = $($monthlysnap.name)"
+			if ($yearly -eq $true)
 			{
-				Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
-				$snapmirrored = $true
+				Logwrite "It is the first sunday of the year. Taking a yearly snapshot"
+				$YearlySnapName="Yearly_"+$date.year.tostring()+"_"+$rndnumber.ToString()
+				$yearlysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $YearlySnapName -SnapmirrorLabel yearly
+				Logwrite "Yearly snapshot name = $($yearlysnap.name)"
 			}
-			else
+			Logwrite "Force replication to : $($relation.DestinationLocation) to push newly created snapshots"
+			Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
+			Logwrite "Let's check replication status"
+			$snapmirrored = $false
+			while ($snapmirrored -eq $false)
 			{
-				Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
-				sleep 5
+				$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+				{
+					Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
+					$snapmirrored = $true
+				}
+				else
+				{
+					Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+					sleep 5
+				}
 			}
 		}
+		
 	}
 	if ($weekly -eq $true)
 	{
 		#Once ok then Create another snapshot like a weekly
-		Logwrite "It is Sunday. Taking a Weekly snapshot"
-		$WeeklySnapName="Weekly_"+$date.month.tostring()+"_"+$rndnumber.ToString()
-		$weeklysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $WeeklySnapName -SnapmirrorLabel weekly
-		
-		Logwrite "Force replication to : $($relation.DestinationLocation) to push newly weekly snapshots"
-		Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
-		Logwrite "Let's check replication status"
-		$snapmirrored = $false
-		while ($snapmirrored -eq $false)
+		Logwrite "Searching for Source volume "
+		$relDP = Get-NcSnapmirror |?{$_.DestinationLocation -eq "$($relation.sourcevserver):$($relation.sourcevolume)"}
+		if ($relDP)
 		{
-			$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
-			if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+			$peering=Get-NcVserverPeer -PeerVserver $relDP.sourcevserver
+			$peering=$peering[0]
+			Logwrite "Cascading detected !!! Source volume = $($relDP.sourcevolume) Source SVM: $($relDP.sourcevserver) Source Cluster: $($peering.PeerCluster)"
+			Logwrite "Connecting to peer cluster : $($peering.PeerCluster)"
+			$CurrentNcController = $null
+			Connect_Filer $peering.PeerCluster
+			
+			Logwrite "It is Sunday. Taking a Weekly snapshot"
+			$WeeklySnapName="Weekly_"+$date.day.tostring()+"_"+$rndnumber.ToString()
+			$weeklysnap=New-NcSnapshot -Volume $relDP.sourcevolume -VserverContext $relDP.sourcevserver -Snapshot $WeeklySnapName -SnapmirrorLabel weekly
+			
+			#listing all weekly snapshots 
+			$snaps=get-ncsnapshot -vserver $relDP.sourcevserver -volume $relDP.sourcevolume |?{$_.name -match "Weekly" -and $_.Dependency -ne "snapmirror"} |Sort-Object -Property Created -Descending
+			if ($snaps.count -gt $maxweeklysnapcount)
 			{
-				Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
-				$snapmirrored = $true
+				#Select the older snap from the list
+				$snaptodelete = $snaps[-1]
+				LogWrite "Deleting snapshot : $($snaptodelete.name) created on : $($snaptodelete.created)"
+				Remove-NcSnapshot -Volume $relDP.sourcevolume -VserverContext $relDP.sourcevserver -Snapshot $snaptodelete.name -confirm:$false |out-null
 			}
-			else
+			Logwrite "Force replication to : $($relDP.DestinationLocation) to push newly created snapshots to the DRP Cluster"
+			$CurrentNcController = $null
+			Connect_Filer $cluster
+			
+			Invoke-NcSnapmirrorUpdate -Destination $relDP.DestinationLocation |out-null
+			Logwrite "Let's check replication status"
+			$snapmirrored = $false
+			while ($snapmirrored -eq $false)
 			{
-				Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
-				sleep 5
+				$SMstate=Get-NcSnapmirror -Destination $relDP.DestinationLocation
+				if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+				{
+					Logwrite "Update Done !! --- Mirror State = $($SMstate.MirrorState) "
+					$snapmirrored = $true
+				}
+				else
+				{
+					Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+					sleep 5
+				}
 			}
+			Logwrite "Force SMC replication to : $($relation.DestinationLocation) to push newly created snapshots"
+			Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
+			Logwrite "Let's check replication status"
+			$snapmirrored = $false
+			while ($snapmirrored -eq $false)
+			{
+				$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+				{
+					Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
+					$snapmirrored = $true
+				}
+				else
+				{
+					Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+					sleep 5
+				}
+			}
+			if ($monthly -eq $true)
+			{
+				Logwrite "Let's clean monthly snapshot on source Cluster"
+				Logwrite "Force replication to : $($relation.DestinationLocation) to push newly weekly snapshots"
+				Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
+				Logwrite "Let's check replication status"
+				$snapmirrored = $false
+				while ($snapmirrored -eq $false)
+				{
+					$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+					if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+					{
+						Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
+						$snapmirrored = $true
+					}
+					else
+					{
+						Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+						sleep 5
+					}
+				}
+				$NewSMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if ($NewSMstate.NewestSnapshot -ne $monthlysnap.name)
+				{
+					Logwrite "Monthly Snapshot is unlocked. We can remove it"
+					Logwrite "Connecting to peer cluster : $($peering.PeerCluster)"
+					$CurrentNcController = $null
+					Connect_Filer $peering.PeerCluster
+					Logwrite "Removing snapshot: $($monthlysnap.name) from volume : $($relDP.sourcevolume) on Cluster : $($peering.PeerCluster)"
+					Remove-NcSnapshot -Volume $relDP.sourcevolume -VserverContext $relDP.sourcevserver -Snapshot $monthlysnap.name -confirm:$false |out-null
+					$CurrentNcController = $null
+					Logwrite "Force SnapMirror update "
+					Connect_Filer $cluster
+					Invoke-NcSnapmirrorUpdate -Destination $relDP.DestinationLocation |out-null
+					Logwrite "Let's check replication status"
+					$snapmirrored = $false
+					while ($snapmirrored -eq $false)
+					{
+						$SMstate=Get-NcSnapmirror -Destination $relDP.DestinationLocation
+						if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+						{
+							Logwrite "Update Done !! --- Mirror State = $($SMstate.MirrorState) "
+							$snapmirrored = $true
+						}
+						else
+						{
+							Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+							sleep 5
+						}
+					}
+				}
+			}
+			if ($yearly -eq $true)
+			{
+				Logwrite "Let's clean Yearly Snapshot "
+				if ($CurrentNcController = $null)
+				{
+					Connect_Filer $cluster
+				}
+				$NewSMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if ($NewSMstate.NewestSnapshot -ne $yearlysnap.name)
+				{
+					Logwrite "Yearly Snapshot is unlocked. We can remove it"
+					Logwrite "Connecting to peer cluster : $($peering.PeerCluster)"
+					$CurrentNcController = $null
+					Connect_Filer $peering.PeerCluster
+					Logwrite "Removing snapshot: $($monthlysnap.name) from volume : $($relDP.sourcevolume) on Cluster : $($peering.PeerCluster)"
+					Remove-NcSnapshot -Volume $relDP.sourcevolume -VserverContext $relDP.sourcevserver -Snapshot $yearlysnap.name -confirm:$false |out-null
+					$CurrentNcController = $null
+					Connect_Filer $cluster
+					Invoke-NcSnapmirrorUpdate -Destination $relDP.DestinationLocation |out-null
+					Logwrite "Let's check replication status"
+					$snapmirrored = $false
+					while ($snapmirrored -eq $false)
+					{
+						$SMstate=Get-NcSnapmirror -Destination $relDP.DestinationLocation
+						if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+						{
+							Logwrite "Update Done !! --- Mirror State = $($SMstate.MirrorState) "
+							$snapmirrored = $true
+						}
+						else
+						{
+							Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+							sleep 5
+						}
+					}
+				}
+			}
+			
 		}
-		if ($monthly -eq $true)
+		else
 		{
-			Logwrite "Let's clean monthly snapshot"
+			Logwrite "It is Sunday. Taking a Weekly snapshot"
+			$WeeklySnapName="Weekly_"+$date.day.tostring()+"_"+$rndnumber.ToString()
+			$weeklysnap=New-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $WeeklySnapName -SnapmirrorLabel weekly
+			
 			Logwrite "Force replication to : $($relation.DestinationLocation) to push newly weekly snapshots"
 			Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
 			Logwrite "Let's check replication status"
@@ -205,35 +415,64 @@ foreach ($relation in $relations)
 					sleep 5
 				}
 			}
-			$NewSMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
-			if ($NewSMstate -ne $monthlysnap.name)
+			if ($monthly -eq $true)
 			{
-				Logwrite "Monthly Snapshot is unlocked. We can remove it"
-				Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $monthlysnap.name -confirm:$false |out-null
+				Logwrite "Let's clean monthly snapshot"
+				Logwrite "Force replication to : $($relation.DestinationLocation) to push newly weekly snapshots"
+				Invoke-NcSnapmirrorUpdate -Destination $relation.DestinationLocation |out-null
+				Logwrite "Let's check replication status"
+				$snapmirrored = $false
+				while ($snapmirrored -eq $false)
+				{
+					$SMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+					if (($SMstate.status).tolower() -eq "idle" -and $SMstate.IsHealthy -eq $true)
+					{
+						Logwrite "Update Done !! --- Common Snapshot = $($SMstate.NewestSnapshot) "
+						$snapmirrored = $true
+					}
+					else
+					{
+						Logwrite "Update in progress (status = $($SMstate.MirrorState)) ... waiting 5 seconds"
+						sleep 5
+					}
+				}
+				$NewSMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if ($NewSMstate.NewestSnapshot -ne $monthlysnap.name)
+				{
+					Logwrite "Monthly Snapshot is unlocked. We can remove it"
+					Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $monthlysnap.name -confirm:$false |out-null
+				}
 			}
-		}
-		if ($yearly -eq $true)
-		{
-			Logwrite "Let's clean Yearly Snapshot "
-			$NewSMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
-			if ($NewSMstate -ne $yearlysnap.name)
+			if ($yearly -eq $true)
 			{
-				Logwrite "Yearly Snapshot is unlocked. We can remove it"
-				Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $yearlysnap.name -confirm:$false |out-null
+				Logwrite "Let's clean Yearly Snapshot "
+				$NewSMstate=Get-NcSnapmirror -Destination $relation.DestinationLocation
+				if ($NewSMstate.NewestSnapshot -ne $yearlysnap.name)
+				{
+					Logwrite "Yearly Snapshot is unlocked. We can remove it"
+					Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $yearlysnap.name -confirm:$false |out-null
+				}
 			}
+			Logwrite "Cleaning old weekly snapshots "
+			#listing all weekly snapshots 
+			$snaps=get-ncsnapshot -vserver $relation.sourcevserver -volume $relation.sourcevolume |?{$_.name -match "Weekly" -and $_.Dependency -ne "snapmirror"} |Sort-Object -Property Created -Descending
+			if ($snaps.count -gt $maxweeklysnapcount)
+			{
+				#Select the older snap from the list
+				$snaptodelete = $snaps[-1]
+				LogWrite "Deleting snapshot : $($snaptodelete.name) created on : $($snaptodelete.created)"
+				Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $snaptodelete.name -confirm:$false |out-null
+			}
+			
 		}
-		Logwrite "Cleaning old weekly snapshots "
-		#listing all weekly snapshots 
-		$snaps=get-ncsnapshot -vserver $relation.sourcevserver -volume $relation.sourcevolume |?{$_.name -match "Weekly" -and $_.Dependency -ne "snapmirror"} |Sort-Object -Property Created -Descending
-		if ($snaps.count -gt $maxweeklysnapcount)
-		{
-			#Select the older snap from the list
-			$snaptodelete = $snaps[-1]
-			LogWrite "Deleting snapshot : $($snaptodelete.name) created on : $($snaptodelete.created)"
-			Remove-NcSnapshot -Volume $relation.sourcevolume -VserverContext $relation.sourcevserver -Snapshot $snaptodelete.name -confirm:$false |out-null
-		}
+		
 	}
-
-	$relation
+	if ($notsunday -eq $true)
+	{
+		$ts =  [timespan]::fromseconds($relation.lagtime)
+		$res = "$($ts.hours)H:$($ts.minutes)M:$($ts.seconds)"
+		Logwrite "$($relation) -Lag Time- $($res)"
+	}
+	#$relation
 	
 }
