@@ -36,7 +36,7 @@ Usage:
 #>
 
 #Variables
-$Logfilebase = "C:\LOD\FasInstall_log"
+$Logfilebase = "C:\LOD\SMC_Monthly_log"
 $maxlogfiles = 5
 $maxlogfilesize = 50KB
 
