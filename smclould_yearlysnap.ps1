@@ -25,6 +25,14 @@ Note:
 Usage: 
     smcloud_yearlysnap.ps1 -cluster <DNS name of the cluster>
         ex: smcloud_yearlysnap.ps1 -cluster cluster1
+		debug (force backup on another day than sunday) : 
+			#Create a Weekly Snapshot
+			smcloud_yearlysnap.ps1 -cluster cluster1 -Testdebug -weekly
+			#Create a Monthly and a Weekly Snapshot
+			smcloud_yearlysnap.ps1 -cluster cluster1 -Testdebug -monthly -weekly 
+			#Create a Yearly, a Monthly and a Weekly Snapshot
+			smcloud_yearlysnap.ps1 -cluster cluster1 -Testdebug -yearly -monthly -weekly
+		
 #>
 
 #Variables
