@@ -51,10 +51,23 @@ Architectl
 	Cluster1::> security anti-ransomware volume attack generate-report -vserver prod -volume vol1 -dest-path prod:vol2
 
 #create Snapmirror to Cloud config
-object-store-server bucket create -bucket buck1 -comment "" -size 100g
-sn object-store config create -object-store-name ntaps3 -usage data -owner snapmirror -provider-type ONTAP_S3 -server s3.demo.netapp.com -port 443 -is-ssl-enabled true -container-name buck1 -access-key SGWE431JS3LCKVLPGYWD -secret-password cAmAs54NQBAT06G7N_4Q94ikccNcS_XaE39CIcC1 -is-certificate-validation-enabled false
+	$session = new-pssession -ComputerName dc1
+	Import-PSSession -Session $session -Module dnsserver -Prefix RemoteDNS |out-null
+	Add-RemoteDNSDnsServerResourceRecordA -Name "s3" -ZoneName "demo.netapp.com" -AllowUpdateAny -IPv4Address "192.168.0.142" |out-null
+	#on CL2
+	object-store-server bucket create -bucket buck1 -comment "" -size 100g
+	bucket policy add-statement -vserver svm1_cluster2 -bucket buck1 -effect allow -action GetObject,PutObject,DeleteObject,ListBucket,GetBucketAcl,GetObjectAcl,ListBucketMultipartUploads,ListMultipartUploadParts,GetObjectTagging,PutObjectTagging,DeleteObjectTagging,GetBucketLocation -principal *
+	#on CL1
+	sn object-store config create -object-store-name ntaps3 -usage data -owner snapmirror -provider-type ONTAP_S3 -server s3.demo.netapp.com -port 443 -is-ssl-enabled true -container-name buck1 -access-key SGWE431JS3LCKVLPGYWD -secret-password cAmAs54NQBAT06G7N_4Q94ikccNcS_XaE39CIcC1 -is-certificate-validation-enabled false
+	sn policy add-rule -vserver prod -policy CloudYearly -snapmirror-label yearly -keep 4
+	sn policy add-rule -vserver prod -policy CloudYearly -snapmirror-label monthly -keep 12
+	sn policy add-rule -vserver prod -policy CloudYearly -snapmirror-label weekly -keep 6
+	sn create -source-path prod:vol1 -destination-path ntaps3:/objstore/vol1_dst -schedule hourly -policy CloudYearly
+	sn initialize -destination-path ntaps3:/objstore/vol1_dst
 
-
+	#Check snapshot in the bucket
+	sn show -destination-path *objstore* -fields destination-endpoint-uuid
+	sn object-store endpoint snapshot show -object-store-name ntaps3 -endpoint-uuid <endpoint uuid>
 #>
 
 #Variables
