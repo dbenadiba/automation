@@ -55,10 +55,11 @@ Architectl
 	Import-PSSession -Session $session -Module dnsserver -Prefix RemoteDNS |out-null
 	Add-RemoteDNSDnsServerResourceRecordA -Name "s3" -ZoneName "demo.netapp.com" -AllowUpdateAny -IPv4Address "192.168.0.142" |out-null
 	#on CL2
-	object-store-server bucket create -bucket buck1 -comment "" -size 100g
+	object-store-server bucket create -bucket buck1 -comment "" -size 100g -vserver svm1_cluster2
 	bucket policy add-statement -vserver svm1_cluster2 -bucket buck1 -effect allow -action GetObject,PutObject,DeleteObject,ListBucket,GetBucketAcl,GetObjectAcl,ListBucketMultipartUploads,ListMultipartUploadParts,GetObjectTagging,PutObjectTagging,DeleteObjectTagging,GetBucketLocation -principal *
 	#on CL1
 	sn object-store config create -object-store-name ntaps3 -usage data -owner snapmirror -provider-type ONTAP_S3 -server s3.demo.netapp.com -port 443 -is-ssl-enabled true -container-name buck1 -access-key SGWE431JS3LCKVLPGYWD -secret-password cAmAs54NQBAT06G7N_4Q94ikccNcS_XaE39CIcC1 -is-certificate-validation-enabled false
+	sn policy create -vserver prod -policy CloudYearly -type vault
 	sn policy add-rule -vserver prod -policy CloudYearly -snapmirror-label yearly -keep 4
 	sn policy add-rule -vserver prod -policy CloudYearly -snapmirror-label monthly -keep 12
 	sn policy add-rule -vserver prod -policy CloudYearly -snapmirror-label weekly -keep 6
