@@ -4,7 +4,12 @@ Param(
 <#usage
 #Lab 9.10.1 : https://labondemand.netapp.com/lab/eapontap9101
 
-Architectl
+# Launch the script to create the environment 
+
+PRD SVM + CIFS Server + NFS + Vol1 and Vol2
+
+./CreateSVMDRAndSnaplockCascade.ps1 -cluster cluster1
+		
 #enable AntiRansomware on vol1 and vol2
 	Cluster1::> vol modify -vserver prod -volume vol* -anti-ransomware-state dry-run
 
