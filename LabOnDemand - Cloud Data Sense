@@ -1,0 +1,43 @@
+#Create DNS A Records for several endpoints
+	$session = new-pssession -ComputerName dc1
+	Import-PSSession -Session $session -Module dnsserver -Prefix RemoteDNS |out-null
+	Add-RemoteDNSDnsServerResourceRecordA -Name "cluster1" -ZoneName "demo.netapp.com" -AllowUpdateAny -IPv4Address "192.168.0.101" |out-null
+	Add-RemoteDNSDnsServerResourceRecordA -Name "cluster2" -ZoneName "demo.netapp.com" -AllowUpdateAny -IPv4Address "192.168.0.102" |out-null
+	Add-RemoteDNSDnsServerResourceRecordA -Name "prod" -ZoneName "demo.netapp.com" -AllowUpdateAny -IPv4Address "192.168.0.199" |out-null
+	Add-RemoteDNSDnsServerResourceRecordA -Name "s3" -ZoneName "demo.netapp.com" -AllowUpdateAny -IPv4Address "192.168.0.142" |out-null
+	
+
+#Connect to Cluster1 (CIFS / NFS)
+	vserver create -vserver prod -subtype default -rootvolume prod_root -rootvolume-security-style ntfs
+	net int create -vserver prod -lif nas -service-policy default-data-files -address 192.168.0.199 -netmask-length 24 -home-node remote-01 -home-port e0e
+	dns create -vserver prod -domains demo.netapp.com -name-servers 192.168.0.253
+	cifs create -vserver prod -cifs-server prod -domain demo.netapp.com -ou CN=Computers
+		Administrator
+		Netapp1!
+	vol create -vserver prod -volume vol1 -aggregate onPrem_01_SSD_1 -size 100g -space-guarantee none -junction-path /vol1
+	vol create -vserver prod -volume vol2 -aggregate onPrem_01_SSD_1 -size 100g -space-guarantee none -junction-path /vol2
+	cifs share create -vserver prod -share-name vol1 -path /vol1
+	cifs share create -vserver prod -share-name vol1 -path /vol1
+	nfs create -vserver prod -access true
+	vserver name-mapping create -vserver prod -direction unix-win -position 1 -pattern "*" -replacement DEMO\\Administrator
+	vol create -vserver prod -volume volnfs -aggregate onPrem_01_SSD_1 -size 100g -space-guarantee none -junction-path /volnfs -security-style unix
+	export-policy rule create -vserver prod -policyname default -clientmatch 0.0.0.0/0 -rorule any -rwrule any -superuser any
+
+
+#Connect on Cluster2 (Objects)
+#create s3 buckets on Cluster2
+	system license add SSBJFEBBVAAAAAAAAAAAAAAAAAAA
+	vserver create -vserver s3 -rootvolume s3_root -data-services data-s3-server -aggregate remote_01_SSD_1
+	set d -c off
+	net int service-policy create -policy s3 -allowed-addresses 0.0.0.0/0 -services data-s3-server -vserver s3
+	net int create -vserver s3 -lif s3 -service-policy s3 -role data -data-protocol s3 -address 192.168.0.142 -netmask-length 24 -home-node remote-01
+	certificate create -common-name s3cert -type server -size 2048 -country US -vserver s3
+	vserver object-store-server create -vserver s3 -object-store-server s3.demo.netapp.com -is-http-enabled true -is-https-enabled true -listener-port 80 -certificate-name s3cert
+	vserver object-store-server bucket create -vserver s3 -bucket bucket1 -comment "" -size 100g
+	vserver object-store-server bucket create -vserver s3 -bucket bucket2 -comment "" -size 100g
+	vserver object-store-server user create -vserver s3 -user s3user
+	vserver object-store-server group create -vserver s3 -name grp1 -users s3user -policies FullAccess
+	vserver object-store-server bucket policy statement create -vserver s3 -bucket bucket1 -effect allow -action GetObject,PutObject,DeleteObject,ListBucket,GetBucketAcl,GetObjectAcl,ListBucketMultipartUploads,ListMultipartUploadParts,GetObjectTagging,PutObjectTagging,DeleteObjectTagging,GetBucketLocation -principal s3user -resource bucket1,bucket1/*
+	vserver object-store-server bucket policy statement create -vserver s3 -bucket bucket2 -effect allow -action GetObject,PutObject,DeleteObject,ListBucket,GetBucketAcl,GetObjectAcl,ListBucketMultipartUploads,ListMultipartUploadParts,GetObjectTagging,PutObjectTagging,DeleteObjectTagging,GetBucketLocation -principal s3user -resource bucket2,bucket2/*
+	vserver object-store-server user show -vserver s3 -user s3user
+	
