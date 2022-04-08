@@ -1,3 +1,6 @@
+Lod: https://labondemand.netapp.com/lab/sl10717 
+
+
 #Create DNS A Records for several endpoints
 	$session = new-pssession -ComputerName dc1
 	Import-PSSession -Session $session -Module dnsserver -Prefix RemoteDNS |out-null
