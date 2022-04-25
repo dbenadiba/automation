@@ -144,9 +144,37 @@ function Encrypt_password ($passwordfile)
 		Write-Host "password been hashed and saved to ($passwordfile)" 
 	}
 }
+function WipeVolumes ($VolumesToWipe)
+{
+		LogWrite "You Are about to delete defently all folowing volumes"
+		Logwrite "$($VolumesToWipe.Name)"
+		foreach ($Vol in $VolumesToWipe)
+		{
+			LogWrite "Deleting Volume $($Vol.name)"
+			if ($Vol.JunctionPath -ne $null)
+			{
+				Dismount-NcVol -Name $vol.name -VserverContext $vol.Vserver -Confirm:$false -ErrorAction Continue |Out-Null
+			}
+			Set-NcVol -Name $vol.name -VserverContext $vol.vserver -Offline -Confirm:$false |out-null
+			Remove-NcVol -VserverContext $vol.vserver -Name $vol.name -Confirm:$false |Out-Null
+		}
+		Invoke-NcSsh -Command "set d;volume recovery-queue purge-all -vserver $($vol.vserver)" |out-null
+	
+}
 
 Connect_Filer $cluster
+#Cleaning aggregate for 9.11.1
+$fullaggr=Get-NcAggr |?{$_.used -gt 96}
+if ($fullaggr)
+{
+	foreach ($aggr in $fullaggr)
+	{
+		$voltoclean=get-ncvol |?{$_.Aggregate -eq $aggr.name}|?{$_.VolumeStateAttributes.IsVserverRoot -eq $false}
+		WipeVolumes $voltoclean
+	}
 
+}
+#
 LogWrite "Creating SVM for CIFS ... "
 $aggr=(Get-NcAggr |?{$_.AggrRaidAttributes.IsRootAggregate -eq $false})[0]
 New-NcVserver -name prod -RootVolume prod_root -RootVolumeAggregate $aggr.name -RootVolumeSecurityStyle ntfs -NameServerSwitch file |out-null
@@ -170,10 +198,28 @@ Add-RemoteDNSDnsServerResourceRecordA -Name "prod" -ZoneName "demo.netapp.com" -
 
 #get first peer cluster name
 $peercluster=(Get-NcClusterPeer)[0]
+if (!$peercluster)
+{
+	$nopeer=$true
+	$peercluster=@{}
+	$peercluster.ClusterName = "cluster2"
+	New-NcNetInterface -Role Intercluster -Name ic1_clust1 -Vserver cluster1 -Node cluster1-01 -Port e0e -Address 1.1.1.1 -NetmaskLength 24 |out-null
+	New-NcNetInterface -Role Intercluster -Name ic2_clust1 -Vserver cluster1 -Node cluster1-02 -Port e0e -Address 1.1.1.2 -NetmaskLength 24 |out-null
+}
 $CurrentNcController = $null
 #Connect to cluster peer 
 Connect_Filer $peercluster.ClusterName
-
+if ($nopeer)
+{
+	New-NcNetInterface -Role Intercluster -Name ic1_clust2 -Vserver cluster2 -Node cluster2-01 -Port e0e -Address 1.1.1.3 -NetmaskLength 24 |out-null
+	New-NcNetInterface -Role Intercluster -Name ic2_clust2 -Vserver cluster2 -Node cluster2-02 -Port e0e -Address 1.1.1.4 -NetmaskLength 24 |out-null
+	Add-NcClusterPeer -Address 1.1.1.1 -Passphrase stamstamstam
+	$CurrentNcController = $null
+	Connect_Filer $cluster
+	Add-NcClusterPeer -Address 1.1.1.3 -Passphrase stamstamstam
+	$CurrentNcController = $null
+	Connect_Filer $peercluster.ClusterName
+}
 New-NcVserver -name prod_dp -Subtype dp-destination |out-null
 New-NcVserverPeer -Vserver prod_dp -PeerVserver prod -Application snapmirror -PeerCluster $cluster
 $peered=$false
@@ -189,6 +235,11 @@ while ($peered -eq $false)
     {
         Logwrite "vserver are not peered yet ... waiting 5 seconds"
         sleep 5
+		$CurrentNcController = $null
+		Connect_Filer $cluster
+		Confirm-NcVserverPeer -Vserver $vserverpeer.peervserver -PeerVserver $vserverpeer.vserver  -Confirm:$false
+		$CurrentNcController = $null
+		Connect_Filer $peercluster.ClusterName
     }
 }
 Logwrite "Creating SVM-DR relationship"
