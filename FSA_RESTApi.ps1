@@ -3,22 +3,14 @@ Param(
 	[Parameter(Mandatory=$true)][string]$SVM
     )
 <#
-
 #List all files/folder under 500 B
 curl -siku admin:Netapp1! --request GET "https://cluster1/api/storage/volumes/a2d55d6b-87f2-11ec-88b2-005056b77e96/files/Top_Dir_1%2FSub_Dir_11?size=<500&fields=*"
-
 #Write a file in a volume
 curl -siku admin:Netapp1! -X POST "https://cluster1/api/storage/volumes/83f3047d-837e-11ec-8c9d-005056b0d995/files/aNewFile" -H "Content-Type: multipart/form-data" --form "file=the data to be written to the new file"
-
 #Read a File from REST Api call
 curl -siku admin:Netapp1! --request GET "https://cluster1/api/storage/volumes/83f3047d-837e-11ec-8c9d-005056b0d995/files/src_file?byte_offset=0&length=100" -H "Accept: multipart/form-data"
-
-
 curl -siku admin:Netapp1! --request GET "https://cluster1/api/storage/volumes/4438aed6-8840-11ec-8e71-005056b775ef/files/.anti_ransomware_analytics_log%2extn.txt?byte_offset=0&length=100" -H "Accept: multipart/form-data"
-
 "https://cluster1/api/storage/volumes/83f3047d-837e-11ec-8c9d-005056b0d995/files/Top_Dir_1%2FSub_Dir_11?fields=*&max_records=10000"
-
-
 Usage: ana.ps1 -Cluster cluster1 -SVM prod
 #>
 
@@ -161,24 +153,31 @@ $UriSVM = "https://"+$Cluster+"/api/svm/svms?name=$($SVM)&return_records=true&re
 $SVMInfo=Invoke-RestMethod -Method GET -Uri $UriSVM -headers $hdrs -credential $cred
 #$UriBaseFolder="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/?type=directory&fields=*"
 #$BaseFolder=Invoke-RestMethod -Method GET -Uri $UriBaseFolder -headers $hdrs -credential $cred
-$UriVolumes = "https://"+$Cluster+"/api/storage/volumes?svm.name=$($SVM)&fields=name,uuid,state"
+$UriVolumes = "https://"+$Cluster+"/api/storage/volumes?svm.name=$($SVM)&fields=name,uuid,state,is_svm_root"
 $Volsinfo=Invoke-RestMethod -Method GET -Uri $UriVolumes -headers $hdrs -credential $cred
 foreach ($vol in $Volsinfo.records)
 {
-	LogWrite "Working on volume $($vol.name)"
-	$UriVolume = "https://"+$Cluster+"/api/storage/volumes?svm.name=$($SVM)&name=$($vol.name)&fields=name,uuid,state"
-	$Volinfo=Invoke-RestMethod -Method GET -Uri $UriVolume -headers $hdrs -credential $cred
-	$UriBaseFolder="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/?type=directory&fields=*"
-	$BaseFolder=Invoke-RestMethod -Method GET -Uri $UriBaseFolder -headers $hdrs -credential $cred
-	#getfolder 
-	foreach($dir in $BaseFolder.records)
+	if($vol.is_svm_root)
 	{
-		if ($dir.name -ne "." -and $dir.name -ne ".." -and $dir.name -ne ".snapshot" )
+		Logwrite "Skipping Root Volume" 
+	}
+	else
+	{
+		LogWrite "Working on volume $($vol.name)"
+		$UriVolume = "https://"+$Cluster+"/api/storage/volumes?svm.name=$($SVM)&name=$($vol.name)&fields=name,uuid,state"
+		$Volinfo=Invoke-RestMethod -Method GET -Uri $UriVolume -headers $hdrs -credential $cred
+		$UriBaseFolder="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/?type=directory&fields=*"
+		$BaseFolder=Invoke-RestMethod -Method GET -Uri $UriBaseFolder -headers $hdrs -credential $cred
+		#getfolder 
+		foreach($dir in $BaseFolder.records)
 		{
-			write-host $dir.name
-			$newuri="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/"+$dir.name+"?fields=*&max_records=10000"
-			AnalyticsInADir -uri $newuri -dir $dir.name -vol $vol.name
+			if ($dir.name -ne "." -and $dir.name -ne ".." -and $dir.name -ne ".snapshot" )
+			{
+				#write-host $dir.name
+				$newuri="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/"+$dir.name+"?fields=*&max_records=10000"
+				AnalyticsInADir -uri $newuri -dir $dir.name -vol $vol.name
+			}
 		}
 	}
+	
 }
-
