@@ -65,6 +65,37 @@ function Encrypt_password ($passwordfile)
 	}
 }
 
+function AnalyticsInRoot ($uri,$vol)
+{
+	$result=Invoke-RestMethod -Method GET -Uri $uri -Credential $cred
+	if ($result._links.next)
+	{
+		#there is more than 10000 items ;)
+		$count=0
+		$more=$true
+		while($more -eq $true)
+		{
+			
+			$outfile=$vol+"_"+$count+".json"
+			$result.records|out-file $outfile
+			$uri= "https://"+$Cluster+$result._links.next.href
+			$result=Invoke-RestMethod -Method GET -Uri $uri -Credential $cred
+			$count++
+			$count
+			if (!$result._links.next)
+			{
+				#fin du game
+				$more=$false
+			}
+		}
+	}
+	else
+	{
+		$outfile=$vol+"_"+".json"
+		$result.records|out-file $outfile
+	}
+}
+
 function AnalyticsInADir ($uri,$dir,$vol)
 {
 	$result=Invoke-RestMethod -Method GET -Uri $uri -Credential $cred
@@ -173,11 +204,15 @@ foreach ($vol in $Volsinfo.records)
 		{
 			if ($dir.name -ne "." -and $dir.name -ne ".." -and $dir.name -ne ".snapshot" )
 			{
+				#
 				#write-host $dir.name
 				$newuri="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/"+$dir.name+"?fields=*&max_records=10000"
 				AnalyticsInADir -uri $newuri -dir $dir.name -vol $vol.name
 			}
 		}
+		#get files in the root 
+		$UriRootFolder="https://$($Cluster)/api/storage/volumes/$($Volinfo.records.uuid)/files/?fields=*&max_records=10000"
+		AnalyticsInRoot -uri $UriRootFolder  -vol $vol.name
 	}
 	
 }
