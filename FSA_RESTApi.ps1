@@ -3,6 +3,13 @@ Param(
 	[Parameter(Mandatory=$true)][string]$SVM
     )
 <#
+## Since 9.13.1 You can tag ressources like volumes
+#get records for a specific tag : application:oracleDB
+curl -k -X GET "https://cluster1.demo.netapp.com/api/resource-tags/application%3AoracleDB/resources?fields=**" -H  "accept: application/json" -H  "authorization: Basic YWRtaW46TmV0YXBwMSE="
+Get All tags available
+curl -k -X GET "https://cluster1.demo.netapp.com/api/resource-tags?fields=**" -H  "accept: application/json" -H  "authorization: Basic YWRtaW46TmV0YXBwMSE="
+#Get Volume name from a vol uuid 
+ curl -k -X GET "https://cluster1.demo.netapp.com/api/storage/volumes/e993c101-7c7d-11ee-ae8d-00505681d406?fields=name" -H  "accept: application/json" -H  "authorization: Basic YWRtaW46TmV0YXBwMSE="
 #List all files/folder under 500 B
 curl -siku admin:Netapp1! --request GET "https://cluster1/api/storage/volumes/a2d55d6b-87f2-11ec-88b2-005056b77e96/files/Top_Dir_1%2FSub_Dir_11?size=<500&fields=*"
 #Write a file in a volume
