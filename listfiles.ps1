@@ -4,11 +4,11 @@ Param(
     )
 <#
 Author : David BENADIBA / GTS At NetApp
-Usage: listfiles.ps1 -Cluster cluster1 -SVM prod
+Usage: minarm.ps1 -Cluster cluster1 -SVM prod
 #>
 
 #Creds
-$Logfilebase = "C:\LOD\listfiles_log"
+$Logfilebase = "C:\LOD\File_Analitycs_SVM_log"
 $maxlogfiles = 5
 $maxlogfilesize = 50KB
 
@@ -80,15 +80,14 @@ function AnalyticsInRoot ($uri,$vol)
                 $more=$false
                 $filecount = $filecount + ($result.records).count
                 write-host ">> The directory $($dirpath) in volume $($vol) has $($filecount) files" -foregroundcolor yellow
-				foreach ($item in $result.records)
-				{
-					if ($item.name -ne "." -or $item.name -ne "..")
-					{
-						write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
-					}
+		foreach ($item in $result.records)
+		{
+			if ($item.name -ne "." -or $item.name -ne "..")
+			{
+				write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
+			}
 					
-				}
-				
+		}		
             }
         }
     }
@@ -97,13 +96,11 @@ function AnalyticsInRoot ($uri,$vol)
         write-host "At the root of this volume: $($vol) there is $(($result.records).count) files" -foregroundcolor green
 		foreach ($item in $result.records)
 		{
-			#write-host ">> The directory $($dirpath) in volume $($vol) has $($filecount) files" -foregroundcolor yellow
-				
+			#write-host ">> The directory $($dirpath) in volume $($vol) has $($filecount) files" -foregroundcolor yellow	
 			if ($item.name -ne "." -and $item.name -ne "..")
 			{
 				write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
 			}
-				
 		}
     }
 }
@@ -131,15 +128,13 @@ function AnalyticsInADir ($uri,$dir,$vol)
                 #fin du game
                 $more=$false
                 $filecount = $filecount + ($result.records).count
-				foreach ($item in $result.records)
-				{
-					if ($item.name -ne "." -or $item.name -ne "..")
-					{
-						write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
-					}
-					
-				}
-                
+		foreach ($item in $result.records)
+		{
+			if ($item.name -ne "." -or $item.name -ne "..")
+			{
+				write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
+			}		
+		}
             }
         }
     }
@@ -151,30 +146,35 @@ function AnalyticsInADir ($uri,$dir,$vol)
         $dirs=$result.records|?{$_.type -match "dir" -and $_.name -ne "." -and $_.name -ne ".." -and $_.name -ne ".snapshot" -and $_.name -ne "." -and $_.name -ne ".anti_ransomware_analytics_log"}
         if ($dirs)
         {
-            #lets run it again with this new path
-            foreach ($dir in $dirs)
-            {
-
-                $newuri="https://"+$Cluster+$dir._links.metadata.href
-                $newuri=$newuri.replace('return_metadata=true','fields=*')
-                AnalyticsInADir -uri $newuri -dir $dir.name -vol $vol
-            }
-            
-        }
-		else
+        	#first let's dump local files
+            	foreach ($item in $result.records)
 		{
-			#no more dirs
-			foreach ($item in $result.records)
+			#write-host ">> The directory $($dirpath) in volume $($vol) has $($filecount) files" -foregroundcolor yellow	
+			if ($item.name -ne "." -and $item.name -ne ".." -and $item.type -eq "file")
 			{
-				#write-host ">> The directory $($dirpath) in volume $($vol) has $($filecount) files" -foregroundcolor yellow
-				
-				if ($item.name -ne "." -and $item.name -ne "..")
-				{
-					write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
-				}
-				
-			}
+				write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
+			}	
 		}
+		#then lets run it again with this new path
+		foreach ($dir in $dirs)
+            	{
+                	$newuri="https://"+$Cluster+$dir._links.metadata.href
+                	$newuri=$newuri.replace('return_metadata=true','fields=*')
+                	AnalyticsInADir -uri $newuri -dir $dir.name -vol $vol
+            	}		
+        }
+	else
+	{
+		#no more dirs
+		foreach ($item in $result.records)
+		{
+			#write-host ">> The directory $($dirpath) in volume $($vol) has $($filecount) files" -foregroundcolor yellow	
+			if ($item.name -ne "." -and $item.name -ne "..")
+			{
+				write "$($Cluster);$($vol);$($item.path);$($item.name);$($item.modified_time);$($item.size)" |out-file $outfile -Append
+			}	
+		}
+	}
         
     }
 }
