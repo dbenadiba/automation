@@ -29,7 +29,7 @@ HARVEST_COMPOSE_OUT="${HARVEST_COMPOSE_OUT:-$(pwd)/harvest-compose.yml}"
 PROM_STACK_FILE="${PROM_STACK_FILE:-$(pwd)/prom-stack.yml}"
 
 # Docker login (optionnel)
-DO_DOCKER_LOGIN="${DO_DOCKER_LOGIN:-false}"   # true/false
+DO_DOCKER_LOGIN="${DO_DOCKER_LOGIN:-true}"   # true/false
 DOCKER_USER="${DOCKER_USER:-dbenadib}"
 DOCKER_PASS="${DOCKER_PASS:-}"               # idéalement: export DOCKER_PASS=... (sinon prompt)
 
