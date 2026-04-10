@@ -161,7 +161,7 @@ docker run -d \
   start --http --port 8082 --host 0.0.0.0
 
 log "✅ Terminé."
-echo "ONTAP MCP:   http://<host>:${ONTAP_MCP_PORT}"
-echo "Harvest MCP: http://<host>:${HARVEST_MCP_PORT}"
+echo "ONTAP MCP:   http://192.168.0.61:${ONTAP_MCP_PORT}"
+echo "Harvest MCP: http://192.168.0.61:${HARVEST_MCP_PORT}"
 echo "Config MCP:  ${MCP_YAML_PATH}"
 echo "Config Harv: ${HARVEST_YML_PATH}"
